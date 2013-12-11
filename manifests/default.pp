@@ -145,7 +145,10 @@ file {"/home/vagrant/.bashrc":
   source => '/vagrant/.bashrc'
 }
 
-exec {"sudo -u postgres createuser -s openerp":}
+user {"openerp":
+  ensure => 'present',
+}
+
 
 
 # The way I installed OE V7 on Ubuntu 12.04: Add to /etc/apt/sources.lst (warning: no space between http: and //):
