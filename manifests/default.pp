@@ -8,10 +8,9 @@ class { 'postgresql::server':
   ip_mask_allow_all_users    => '0.0.0.0/0',
   listen_addresses           => '*',
   postgres_password          => 'postgres',
-  ipv4acls                   => ['local all all trust', 'host all all 0.0.0.0/0 trust'],
   manage_pg_hba_conf         => true,
-  encoding                   => 'utf-8',
-  # require  => Package['postgresql-server-dev-9.1'],
+  encoding                   => 'UTF8',
+  require  => Exec['apt-get update'],
 }
 
 postgresql::server::role { 'openerp':
@@ -21,16 +20,11 @@ postgresql::server::role { 'openerp':
   superuser     => true,
 }
 
-postgresql::server::pg_hba_rule { 'allow application network to access app database':
-  description => "Open up postgresql for openerp in localhost",
-  type => 'host',
-  database => 'all',
-  user => 'openerp',
-  address => '0.0.0.0/0',
-  auth_method => 'trust',
-  order       => 1,
+user { 'openerp':
+  ensure     => "present",
 }
 
+#sudo -u postgres createuser -s openerp
 
 # postgresql::server::db { 'openerpdev':
 #   user     => 'openerp',
@@ -55,11 +49,15 @@ $dependecies=["python-dateutil", "python-feedparser", "python-gdata", "python-ld
 "python-pybabel", "python-pychart", "python-pydot", "python-pyparsing", "python-reportlab", 
 "python-simplejson", "python-tz", "python-vatnumber", "python-vobject", "python-webdav", 
 "docutils-common", "docutils-doc", "python-docutils", "python-jinja2", "python-mock", 
-"python-psutil", "python-pygments", "python-roman", "python-unittest2",
-"python-werkzeug", "python-xlwt", "python-yaml", "python-zsi", "wget", "bzr", "language-pack-en"] 
+"python-psutil", "python-pygments", "python-roman", "python-unittest2", "nginx", "git-core",
+"python-werkzeug", "python-xlwt", "python-yaml", "python-zsi", "wget", "bzr", "language-pack-en"]
 
 #export LC_ALL="en_US.utf-8"
 #export LANGUAGE="en_US.utf-8"
+
+exec {"export language":
+  command => "/usr/sbin/update-locale LANG=en_US.UTF-8 LC_ALL=en_US.utf-8 LANGUAGE=en_US.utf-8"
+}
 
 package {$dependecies:
   ensure => "installed",
@@ -67,8 +65,7 @@ package {$dependecies:
 }
 
 exec { "apt-get update":
-    command => "/usr/bin/apt-get update",
-    onlyif => "/bin/sh -c '[ ! -f /var/cache/apt/pkgcache.bin ] || /usr/bin/find /etc/apt/* -cnewer /var/cache/apt/pkgcache.bin | /bin/grep . > /dev/null'",
+    command => "/usr/bin/apt-get update --fix-missing",
 }
 
 #exec { "/usr/bin/wget --continue --progress=dot:mega --tries=0 http://nightly.openerp.com/7.0/nightly/src/openerp-7.0-latest.tar.gz -o /home/vagrant/openerp-7.0-latest.tar.gz":
@@ -83,61 +80,81 @@ exec { "apt-get update":
 # a fuller example, including permissions and ownership
 file { "/opt/openerp":
     ensure => "directory",
-    owner  => "vagrant",
-    group  => "vagrant",
+    owner  => "ubuntu",
+    group  => "ubuntu",
     mode   => 750,
     require => Package['bzr'],
 }
 
 file { "/opt/openerp/v7":
     ensure => "directory",
-    owner  => "vagrant",
-    group  => "vagrant",
+    owner  => "ubuntu",
+    group  => "ubuntu",
     mode   => 750,
     require => File["/opt/openerp"],
 }
 
 file { "/opt/openerp/v7/addons":
     ensure => "directory",
-    owner  => "vagrant",
-    group  => "vagrant",
+    owner  => "ubuntu",
+    group  => "ubuntu",
     mode   => 750,
     require => File["/opt/openerp/v7"],
 }
 
-exec {"/usr/bin/bzr checkout --lightweight lp:openerp-web/7.0 /opt/openerp/v7/web":
+file {"/home/vagrant/.ssh/id_rsa.pub":
+  source => "/vagrant/id_rsa.pub",
+}
+
+exec {"/usr/bin/git clone https://rogercafe:toviassu@bitbucket.org/rogercafe/openerp-web.git /opt/openerp/v7/web":
   creates => '/opt/openerp/v7/web/README',
   require => File["/opt/openerp/v7"],
   timeout     => 4800,
 }
 
-exec {"/usr/bin/bzr checkout --lightweight lp:openobject-server/7.0 /opt/openerp/v7/server":
-  creates => '/opt/openerp/v7/server/README',
-  require => File["/opt/openerp/v7"],
-  timeout     => 4800,
-}
-
-exec {"/usr/bin/bzr checkout --lightweight lp:openobject-addons/7.0 /opt/openerp/v7/addons":
+exec {"/usr/bin/git clone https://rogercafe:toviassu@bitbucket.org/rogercafe/openerp-addons.git /opt/openerp/v7/addons":
   creates => '/opt/openerp/v7/addons/account/account.py',
   require => File["/opt/openerp/v7/addons"],
   timeout     => 4800,
 }
 
+exec {"/usr/bin/git clone https://rogercafe:toviassu@bitbucket.org/rogercafe/openerp-server.git /opt/openerp/v7/server":
+  creates => '/opt/openerp/v7/server/README',
+  require => File["/opt/openerp/v7"],
+  timeout     => 4800,
+}
+
+exec {"/bin/echo \"export LC_ALL='en_US.utf-8'\" >> /home/vagrant/.bashrc":
+}
+
+exec {"/bin/echo \"export LANGUAGE='en_US.utf-8'\" >> /home/vagrant/.bashrc":
+}
+
 file {"/etc/openerp-server.conf":
   source => "/vagrant/openerp-server.conf",
-  require => Exec["/usr/bin/bzr checkout --lightweight lp:openobject-server/7.0 /opt/openerp/v7/server"],
   mode => 640,
-  owner => 'vagrant'
+  owner => 'ubuntu'
+}
+
+file {'/etc/nginx/site-available/openerp':
+  source => "/vagrant/openerp.conf"
+}
+
+file { '/etc/nginx/site-enabled/openerp':
+   ensure => 'link',
+   target => '/etc/nginx/site-available/openerp',
+   require => File['/etc/nginx/site-available/openerp'],
 }
 
 file { "/var/log/openerp":
     ensure => "directory",
-    owner => 'vagrant',
+    owner => 'ubuntu',
     group => 'root'
 }
 
 file { "/etc/logrotate.d/openerp-server":
   source => "/opt/openerp/v7/server/install/openerp-server.logrotate",
+  require => Exec["/usr/bin/git clone https://rogercafe:toviassu@bitbucket.org/rogercafe/openerp-server.git /opt/openerp/v7/server"],
   mode => 755
 }
 
@@ -145,11 +162,10 @@ file {"/home/vagrant/.bashrc":
   source => '/vagrant/.bashrc'
 }
 
-user {"openerp":
-  ensure => 'present',
-}
 
-
+#isso não funcionou
+#git clone https://bitbucket.org/BizzAppDev/oerp_no_phoning_home.git
+#bzr branch --stacked lp:openerp-fiscal-rules fiscal_rules
 
 # The way I installed OE V7 on Ubuntu 12.04: Add to /etc/apt/sources.lst (warning: no space between http: and //):
 
